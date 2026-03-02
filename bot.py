@@ -1,14 +1,14 @@
 """
 Persistent Discord bot for WsToDiscord.
-Replaces the local APScheduler mode in main.py.
 
 Usage:
     python bot.py
 
 Features:
     - Scheduled scrape every 30 minutes
-    - /stock  — list currently in-stock products from state.json
-    - /update — force an immediate scrape + notify cycle
+    - /stock    — list currently in-stock products from state.json
+    - /stockimg — list in-stock products with images
+    - /update   — force an immediate scrape + notify cycle
 """
 from __future__ import annotations
 
