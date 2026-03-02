@@ -1,0 +1,9 @@
+requests==2.31.0
+beautifulsoup4==4.12.3
+lxml==5.1.0
+discord.py==2.3.2
+audioop-lts; python_version >= "3.13"
+python-dotenv==1.0.1
+google-cloud-storage==2.16.0
+google-cloud-secret-manager==2.20.0
+APScheduler==3.10.4
