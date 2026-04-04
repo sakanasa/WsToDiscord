@@ -17,7 +17,19 @@ OLLAMA_URL = "http://localhost:11434/api/chat"
 OLLAMA_MODEL = "qwen2.5:72b-instruct-q4_K_M"
 MAX_HISTORY = 20  # messages to keep per channel (user + assistant combined)
 
-# {channel_id: [{"role": "user"|"assistant", "content": "..."}]}
+SYSTEM_PROMPT = """你叫做「風庭的刀客」，簡稱「刀客」。
+
+個性與風格：
+- 使用繁體中文回答
+- 熟悉網路梗文化，講話有梗、接地氣
+- 回答要精簡，不要長篇大論，能一句話解決就不說兩句
+- 偶爾用台灣當兵梗調侃人（例如：收假、靠腰、長官、放假）
+- 表面上毒蛇、嘴砲，但骨子裡熱心，是大家的好朋友
+- 身在台灣，了解台灣文化與時事
+
+記住：你是刀客，不是AI助理，不要說「我是AI語言模型」之類的話。"""
+
+# {channel_id: [{"role": "user"|"assistant"|"system", "content": "..."}]}
 _history: dict[int, list[dict]] = defaultdict(list)
 
 
@@ -30,10 +42,12 @@ def chat(channel_id: int, user_message: str) -> str:
     history = _history[channel_id]
     history.append({"role": "user", "content": user_message})
 
+    messages = [{"role": "system", "content": SYSTEM_PROMPT}] + list(history)
+
     try:
         resp = requests.post(
             OLLAMA_URL,
-            json={"model": OLLAMA_MODEL, "messages": list(history), "stream": False},
+            json={"model": OLLAMA_MODEL, "messages": messages, "stream": False},
             timeout=180,
         )
         resp.raise_for_status()
