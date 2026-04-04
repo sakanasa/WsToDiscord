@@ -30,6 +30,7 @@ import scrapers.fukufuku as ff
 import scrapers.mercari as mc
 from scrapers import ChangeEvent
 from commands.emoji_stats import emoji_stats_command
+from commands.llm_chat import chat as llm_chat, clear_history as llm_clear_history
 
 load_dotenv()
 
@@ -63,6 +64,7 @@ class WsBot(discord.Client):
 
     async def setup_hook(self) -> None:
         self.tree.add_command(emoji_stats_command)
+        self.tree.add_command(clearchat_command)
         guild = discord.Object(id=GUILD_ID)
         self.tree.copy_global_to(guild=guild)
         await self.tree.sync(guild=guild)
@@ -252,6 +254,60 @@ async def update_cmd(interaction: discord.Interaction) -> None:
     n = await bot._do_scrape_cycle(channel, force_notify=True)
     n += await bot._do_mercari_scrape_cycle(channel)
     await interaction.followup.send(f"✅ 更新完成。總共{n}件產品情報有變化。")
+
+
+@app_commands.command(name="clearchat", description="清除此頻道的 LLM 對話記錄")
+async def clearchat_command(interaction: discord.Interaction) -> None:
+    removed = llm_clear_history(interaction.channel_id)
+    await interaction.response.send_message(
+        f"✅ 已清除 {removed} 則對話記錄。" if removed else "此頻道沒有對話記錄。",
+        ephemeral=True,
+    )
+
+
+_DISCORD_MAX_LEN = 1900  # leave buffer under Discord's 2000-char limit
+
+
+@bot.event
+async def on_message(message: discord.Message) -> None:
+    if message.author.bot:
+        return
+
+    content = message.content.strip()
+    mentioned = bot.user in message.mentions if bot.user else False
+    prefixed = content.startswith("!")
+
+    if not mentioned and not prefixed:
+        return
+
+    # Strip trigger prefix from content
+    if mentioned:
+        for u in message.mentions:
+            content = content.replace(f"<@{u.id}>", "").replace(f"<@!{u.id}>", "")
+        content = content.strip()
+    else:
+        content = content[1:].strip()
+
+    if not content:
+        await message.reply("有什麼可以幫你的？")
+        return
+
+    async with message.channel.typing():
+        try:
+            reply = await asyncio.to_thread(llm_chat, message.channel.id, content)
+        except Exception as e:
+            logger.error("llm: failed to get response: %s", e)
+            await message.reply("⚠️ 無法連線到 Ollama，請確認服務是否正常運行。")
+            return
+
+    # Send reply, splitting if over Discord's limit
+    if len(reply) <= _DISCORD_MAX_LEN:
+        await message.reply(reply)
+    else:
+        chunks = [reply[i:i + _DISCORD_MAX_LEN] for i in range(0, len(reply), _DISCORD_MAX_LEN)]
+        await message.reply(chunks[0])
+        for chunk in chunks[1:]:
+            await message.channel.send(chunk)
 
 
 if __name__ == "__main__":
