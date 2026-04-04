@@ -184,3 +184,40 @@ def update_state(scraped: List[ProductSnapshot], stored: StateDict) -> StateDict
             logger.info("storage: removing delisted product from state: %s", key)
 
     return new_state
+
+
+# ── Site-scoped helpers (for independent per-site scrape cycles) ─────────────
+
+def compute_changes_for_site(
+    scraped: List[ProductSnapshot],
+    stored: StateDict,
+    site: str,
+    is_first_run: bool,
+) -> List[ChangeEvent]:
+    """
+    Like compute_changes(), but only considers stored entries belonging to *site*.
+
+    Use this when a site is scraped on its own schedule so that products from
+    other sites are not mistakenly flagged as disappeared.
+    """
+    site_prefix = f"{site}:"
+    site_stored = {k: v for k, v in stored.items() if k.startswith(site_prefix)}
+    return compute_changes(scraped, site_stored, is_first_run)
+
+
+def update_state_for_site(
+    scraped: List[ProductSnapshot],
+    stored: StateDict,
+    site: str,
+) -> StateDict:
+    """
+    Like update_state(), but only replaces entries belonging to *site*.
+
+    Entries for other sites in *stored* are preserved unchanged.
+    """
+    site_prefix = f"{site}:"
+    # Keep all entries that don't belong to this site
+    other_sites = {k: v for k, v in stored.items() if not k.startswith(site_prefix)}
+    # Build updated entries for this site
+    site_new = update_state(scraped, {k: v for k, v in stored.items() if k.startswith(site_prefix)})
+    return {**other_sites, **site_new}

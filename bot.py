@@ -5,10 +5,11 @@ Usage:
     python bot.py
 
 Features:
-    - Scheduled scrape every 30 minutes
+    - Scheduled scrape every 30 minutes (Hobbystation, Fukufuku)
+    - Scheduled scrape every 10 minutes (Mercari TW)
     - /stock    — list currently in-stock products from state.json
     - /stockimg — list in-stock products with images
-    - /update   — force an immediate scrape + notify cycle
+    - /update   — force an immediate scrape + notify cycle (all sites)
 """
 from __future__ import annotations
 
@@ -26,6 +27,8 @@ import discord_notifier
 import storage
 import scrapers.hobbystation as hs
 import scrapers.fukufuku as ff
+import scrapers.mercari as mc
+from commands.emoji_stats import emoji_stats_command
 
 load_dotenv()
 
@@ -45,25 +48,30 @@ JST = timezone(timedelta(hours=9))
 SITE_NAMES = {
     "hobbystation": "ホビーステーション",
     "fukufuku": "ふくふくとれか",
+    "mercari": "Mercari 台灣",
 }
 
 
 class WsBot(discord.Client):
     def __init__(self) -> None:
-        super().__init__(intents=discord.Intents.default())
+        intents = discord.Intents.default()
+        intents.message_content = True  # Privileged — enable in Discord Dev Portal
+        super().__init__(intents=intents)
         self.tree = app_commands.CommandTree(self)
         self._lock = asyncio.Lock()
 
     async def setup_hook(self) -> None:
+        self.tree.add_command(emoji_stats_command)
         guild = discord.Object(id=GUILD_ID)
         self.tree.copy_global_to(guild=guild)
         await self.tree.sync(guild=guild)
         logger.info("bot: slash commands synced (guild=%d)", GUILD_ID)
         self.scheduled_scrape.start()
+        self.scheduled_mercari_scrape.start()
 
     @tasks.loop(minutes=30)
     async def scheduled_scrape(self) -> None:
-        logger.info("bot: scheduled scrape starting")
+        logger.info("bot: scheduled scrape starting (hobbystation + fukufuku)")
         channel = await self.fetch_channel(CHANNEL_ID)
         n = await self._do_scrape_cycle(channel, force_notify=False)
         logger.info("bot: scheduled scrape done, %d events", n)
@@ -72,13 +80,24 @@ class WsBot(discord.Client):
     async def _before_scheduled_scrape(self) -> None:
         await self.wait_until_ready()
 
+    @tasks.loop(minutes=10)
+    async def scheduled_mercari_scrape(self) -> None:
+        logger.info("bot: Mercari scrape starting")
+        channel = await self.fetch_channel(CHANNEL_ID)
+        n = await self._do_mercari_scrape_cycle(channel, force_notify=False)
+        logger.info("bot: Mercari scrape done, %d events", n)
+
+    @scheduled_mercari_scrape.before_loop
+    async def _before_scheduled_mercari_scrape(self) -> None:
+        await self.wait_until_ready()
+
     async def _do_scrape_cycle(
         self,
         channel: discord.abc.Messageable,
         *,
         force_notify: bool = False,
     ) -> int:
-        """Scrape → diff → save → notify. Returns number of change events."""
+        """Scrape Hobbystation + Fukufuku → diff → save → notify."""
         async with self._lock:
             hs_products = await asyncio.to_thread(hs.scrape)
             ff_products = await asyncio.to_thread(ff.scrape)
@@ -88,6 +107,29 @@ class WsBot(discord.Client):
             is_first_run = len(stored) == 0 and not force_notify
             events = storage.compute_changes(all_products, stored, is_first_run)
             new_state = storage.update_state(all_products, stored)
+            storage.save_local(LOCAL_STATE_PATH, new_state)
+
+            if events:
+                await discord_notifier.send_to_channel(channel, events)
+
+            return len(events)
+
+    async def _do_mercari_scrape_cycle(
+        self,
+        channel: discord.abc.Messageable,
+        *,
+        force_notify: bool = False,
+    ) -> int:
+        """Scrape Mercari TW → diff → save → notify. Uses site-scoped state functions."""
+        async with self._lock:
+            mc_products = await asyncio.to_thread(mc.scrape)
+
+            stored = storage.load_local(LOCAL_STATE_PATH)
+            mercari_stored = {k: v for k, v in stored.items() if k.startswith("mercari:")}
+            is_first_run = len(mercari_stored) == 0 and not force_notify
+
+            events = storage.compute_changes_for_site(mc_products, stored, "mercari", is_first_run)
+            new_state = storage.update_state_for_site(mc_products, stored, "mercari")
             storage.save_local(LOCAL_STATE_PATH, new_state)
 
             if events:
@@ -161,6 +203,7 @@ async def update_cmd(interaction: discord.Interaction) -> None:
     await interaction.response.defer()
     channel = interaction.channel
     n = await bot._do_scrape_cycle(channel, force_notify=True)
+    n += await bot._do_mercari_scrape_cycle(channel, force_notify=True)
     await interaction.followup.send(f"✅ 更新完成。總共{n}件產品情報有變化。")
 
 

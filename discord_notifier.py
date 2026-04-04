@@ -29,6 +29,7 @@ COLOR_SOLD_OUT = 0xFF4444   # Red
 SITE_NAMES = {
     "hobbystation": "ホビーステーション",
     "fukufuku": "ふくふくとれか",
+    "mercari": "Mercari 台灣",
 }
 
 EVENT_TITLES = {
@@ -96,18 +97,20 @@ def _build_embed(event: ChangeEvent) -> tuple[discord.Embed, list[discord.File]]
 
     embed.add_field(name="商品名", value=snap.name, inline=False)
 
+    currency = "NT$" if snap.site == "mercari" else "¥"
+
     if event.event_type == "new":
-        price_display = f"¥{snap.price_raw}" if snap.price_raw else "價格不明❓"
+        price_display = f"{currency}{snap.price_raw}" if snap.price_raw else "價格不明❓"
         embed.add_field(name="価格", value=price_display, inline=True)
         embed.add_field(name="在庫", value="有存貨😄" if snap.in_stock else "已售完😫", inline=True)
 
     elif event.event_type == "price_change":
-        old_price_display = f"¥{event.old_price_raw}" if event.old_price_raw else "不明"
-        new_price_display = f"¥{snap.price_raw}" if snap.price_raw else "不明"
+        old_price_display = f"{currency}{event.old_price_raw}" if event.old_price_raw else "不明"
+        new_price_display = f"{currency}{snap.price_raw}" if snap.price_raw else "不明"
 
         if event.old_price_int and snap.price_int:
             diff = snap.price_int - event.old_price_int
-            diff_str = f"({'+' if diff >= 0 else ''}{diff:,}円)"
+            diff_str = f"({'+' if diff >= 0 else ''}{diff:,})"
         else:
             diff_str = ""
 
@@ -118,7 +121,7 @@ def _build_embed(event: ChangeEvent) -> tuple[discord.Embed, list[discord.File]]
         )
 
     elif event.event_type == "sold_out":
-        price_display = f"¥{snap.price_raw}" if snap.price_raw else "價格不明❓"
+        price_display = f"{currency}{snap.price_raw}" if snap.price_raw else "價格不明❓"
         embed.add_field(name="価格", value=price_display, inline=True)
 
     embed.add_field(name="ショップ", value=f"[{site_name}]({snap.product_url})", inline=True)
@@ -208,7 +211,8 @@ def build_product_embed(product: dict) -> tuple[discord.Embed, list[discord.File
         color=COLOR_NEW,
         timestamp=datetime.now(JST),
     )
-    embed.add_field(name="価格", value=f"¥{product['price_raw']}", inline=True)
+    currency = "NT$" if product.get("site") == "mercari" else "¥"
+    embed.add_field(name="価格", value=f"{currency}{product['price_raw']}", inline=True)
     embed.add_field(name="ショップ", value=f"[{site_name}]({encoded_url})", inline=True)
     embed.set_footer(text=site_name)
 
