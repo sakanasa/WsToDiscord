@@ -14,7 +14,7 @@ import requests
 logger = logging.getLogger(__name__)
 
 OLLAMA_URL = "http://localhost:11434/api/chat"
-OLLAMA_MODEL = "qwen2.5:72b"
+OLLAMA_MODEL = "qwen2.5:72b-instruct-q4_K_M"
 MAX_HISTORY = 20  # messages to keep per channel (user + assistant combined)
 
 # {channel_id: [{"role": "user"|"assistant", "content": "..."}]}
