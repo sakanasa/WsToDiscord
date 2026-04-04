@@ -156,12 +156,25 @@ async def stock_cmd(interaction: discord.Interaction) -> None:
 
     for site, display_name in SITE_NAMES.items():
         items = [v for v in in_stock.values() if v.get("site") == site]
-        if items:
-            lines = [
-                f"[{v['name']}]({v['product_url']}) **¥{v['price_raw']}**"
-                for v in items
-            ]
-            embed.add_field(name=display_name, value="\n".join(lines), inline=False)
+        if not items:
+            continue
+        currency = "NT$" if site == "mercari" else "¥"
+        lines = [
+            f"[{v['name']}]({v['product_url']}) **{currency}{v['price_raw']}**"
+            for v in items
+        ]
+        # Discord embed field value limit is 1024 chars; split into chunks if needed
+        chunk, chunks = [], []
+        for line in lines:
+            if sum(len(l) + 1 for l in chunk) + len(line) > 1020:
+                chunks.append("\n".join(chunk))
+                chunk = []
+            chunk.append(line)
+        if chunk:
+            chunks.append("\n".join(chunk))
+        for i, value in enumerate(chunks):
+            field_name = display_name if i == 0 else f"{display_name} (續)"
+            embed.add_field(name=field_name, value=value, inline=False)
 
     if not in_stock:
         embed.description = "目前沒有可以購買的商品。"
