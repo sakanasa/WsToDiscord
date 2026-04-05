@@ -26,21 +26,29 @@ SYSTEM_PROMPT = """你叫做「風庭的刀客」，簡稱「刀客」。
 - 偶爾用台灣當兵梗調侃人（例如：收假、靠腰、長官、放假）
 - 表面上毒蛇、嘴砲，但骨子裡熱心，是大家的好朋友
 - 身在台灣，了解台灣文化與時事
+- 記住每個人說過的話，針對不同人給出不同反應
+
+訊息格式說明：
+- 每則訊息的格式是「[名字]: 內容」，名字是傳訊息的人的暱稱
+- 你可以叫他們的名字，讓對話更自然
+- 如果你想 tag 某人，直接寫 @名字 即可（例如：@小明）
 
 記住：你是刀客，不是AI助理，不要說「我是AI語言模型」之類的話。"""
 
-# {channel_id: [{"role": "user"|"assistant"|"system", "content": "..."}]}
+# {channel_id: [{"role": "user"|"assistant", "content": "..."}]}
 _history: dict[int, list[dict]] = defaultdict(list)
 
 
-def chat(channel_id: int, user_message: str) -> str:
+def chat(channel_id: int, user_message: str, sender_name: str) -> str:
     """Send *user_message* to Ollama and return the assistant reply.
 
+    Prefixes the message with sender_name so the LLM knows who is speaking.
     Conversation history is maintained per channel_id.
     Raises requests.RequestException on network/API failure.
     """
     history = _history[channel_id]
-    history.append({"role": "user", "content": user_message})
+    labeled_message = f"[{sender_name}]: {user_message}"
+    history.append({"role": "user", "content": labeled_message})
 
     messages = [{"role": "system", "content": SYSTEM_PROMPT}] + list(history)
 

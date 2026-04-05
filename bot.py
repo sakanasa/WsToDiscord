@@ -267,11 +267,28 @@ async def clearchat_command(interaction: discord.Interaction) -> None:
 
 _DISCORD_MAX_LEN = 1900  # leave buffer under Discord's 2000-char limit
 
+# Cache of display_name → user_id, built from messages we observe.
+# Used to convert @name in LLM replies to real Discord mentions.
+_member_cache: dict[str, int] = {}
+
+
+def _resolve_mentions(text: str) -> str:
+    """Replace @名字 patterns in LLM output with proper Discord <@id> mentions."""
+    import re
+    def _replace(m: re.Match) -> str:
+        name = m.group(1)
+        uid = _member_cache.get(name)
+        return f"<@{uid}>" if uid else m.group(0)
+    return re.sub(r"@(\S+)", _replace, text)
+
 
 @bot.event
 async def on_message(message: discord.Message) -> None:
     if message.author.bot:
         return
+
+    # Keep member cache up to date as messages come in
+    _member_cache[message.author.display_name] = message.author.id
 
     content = message.content.strip()
     mentioned = bot.user in message.mentions if bot.user else False
@@ -292,13 +309,17 @@ async def on_message(message: discord.Message) -> None:
         await message.reply("有什麼可以幫你的？")
         return
 
+    sender = message.author.display_name
+
     async with message.channel.typing():
         try:
-            reply = await asyncio.to_thread(llm_chat, message.channel.id, content)
+            reply = await asyncio.to_thread(llm_chat, message.channel.id, content, sender)
         except Exception as e:
             logger.error("llm: failed to get response: %s", e)
             await message.reply("⚠️ 無法連線到 Ollama，請確認服務是否正常運行。")
             return
+
+    reply = _resolve_mentions(reply)
 
     # Send reply, splitting if over Discord's limit
     if len(reply) <= _DISCORD_MAX_LEN:
