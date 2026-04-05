@@ -20,7 +20,7 @@ from commands import memory as mem
 logger = logging.getLogger(__name__)
 
 OLLAMA_URL = "http://localhost:11434/api/chat"
-OLLAMA_MODEL = "qwen2.5:72b-instruct-q4_K_M"
+OLLAMA_MODEL = "qwen3.5:27b"
 MAX_HISTORY = 20      # short-term messages per channel
 MAX_TOOL_ROUNDS = 4   # max LLM→tool→LLM iterations per reply
 
