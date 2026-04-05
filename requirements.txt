@@ -8,3 +8,4 @@ google-cloud-storage==2.16.0
 google-cloud-secret-manager==2.20.0
 APScheduler==3.10.4
 ddgs>=0.1
+chromadb>=0.5

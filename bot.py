@@ -31,6 +31,7 @@ import scrapers.mercari as mc
 from scrapers import ChangeEvent
 from commands.emoji_stats import emoji_stats_command
 from commands.llm_chat import chat as llm_chat, clear_history as llm_clear_history
+from commands import memory as mem
 
 load_dotenv()
 
@@ -65,6 +66,7 @@ class WsBot(discord.Client):
     async def setup_hook(self) -> None:
         self.tree.add_command(emoji_stats_command)
         self.tree.add_command(clearchat_command)
+        await asyncio.to_thread(mem.init)
         guild = discord.Object(id=GUILD_ID)
         self.tree.copy_global_to(guild=guild)
         await self.tree.sync(guild=guild)
@@ -310,10 +312,11 @@ async def on_message(message: discord.Message) -> None:
         return
 
     sender = message.author.display_name
+    user_id = str(message.author.id)
 
     async with message.channel.typing():
         try:
-            reply = await asyncio.to_thread(llm_chat, message.channel.id, content, sender)
+            reply = await asyncio.to_thread(llm_chat, message.channel.id, content, sender, user_id)
         except Exception as e:
             logger.error("llm: failed to get response: %s", e)
             await message.reply("⚠️ 無法連線到 Ollama，請確認服務是否正常運行。")
