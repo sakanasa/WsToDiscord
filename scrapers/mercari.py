@@ -44,7 +44,7 @@ _ITEM_RE = re.compile(
     r'\\"id\\":\\"([a-f0-9-]{36})\\"'
     r'.*?\\"thumbnailUrl\\":\\"(https://[^\\]+)\\"'
     r'.*?\\"title\\":\\"([^\\"]+)\\"'
-    r'.*?\\"formattedAmount\\":\\"(\d+)\\"',
+    r'.*?\\"formattedAmount\\":\\"([\d,]+)\\"',
     re.DOTALL,
 )
 
@@ -71,7 +71,7 @@ def scrape() -> List[ProductSnapshot]:
         seen_ids.add(uuid)
 
         try:
-            price_int = int(price_str)
+            price_int = int(price_str.replace(",", ""))
             price_raw = f"{price_int:,}"
             product_url = f"{BASE_URL}/zh-hant/items/{uuid}"
 
