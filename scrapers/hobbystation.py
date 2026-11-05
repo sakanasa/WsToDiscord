@@ -32,6 +32,19 @@ HEADERS = {
     "Accept-Language": "ja,en-US;q=0.9,en;q=0.8",
 }
 
+# The site serves a JS interstitial ("安全な接続を確認中...") that sets this cookie
+# and reloads. requests can't run JS, so send the cookie up front.
+COOKIES = {"eccube_bot_check": "v3rified_hbst_key"}
+BOT_CHECK_MARKER = "安全な接続を確認中"
+
+
+def _get(url: str) -> requests.Response:
+    resp = requests.get(url, headers=HEADERS, cookies=COOKIES, timeout=30)
+    resp.raise_for_status()
+    if BOT_CHECK_MARKER in resp.text:
+        raise requests.RequestException("blocked by bot-check page (cookie value may have changed)")
+    return resp
+
 
 def _parse_price(text: str) -> tuple[int, str]:
     """Parse price text like '1,500円' -> (1500, '1,500')"""
@@ -51,8 +64,7 @@ def _fetch_detail_images(product_url: str) -> tuple[str, str]:
     (discord_notifier._encode_url handles encoding uniformly).
     """
     try:
-        resp = requests.get(product_url, headers=HEADERS, timeout=30)
-        resp.raise_for_status()
+        resp = _get(product_url)
     except requests.RequestException as e:
         logger.warning("hobbystation: detail page request failed for %s: %s", product_url, e)
         return "", ""
@@ -82,8 +94,7 @@ def _fetch_detail_images(product_url: str) -> tuple[str, str]:
 def scrape() -> List[ProductSnapshot]:
     """Fetch and parse all products from hobbystation-single.jp"""
     try:
-        resp = requests.get(LIST_URL, headers=HEADERS, timeout=30)
-        resp.raise_for_status()
+        resp = _get(LIST_URL)
     except requests.RequestException as e:
         logger.error("hobbystation: request failed: %s", e)
         return []
