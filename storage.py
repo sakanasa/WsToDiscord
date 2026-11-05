@@ -203,21 +203,3 @@ def compute_changes_for_site(
     site_prefix = f"{site}:"
     site_stored = {k: v for k, v in stored.items() if k.startswith(site_prefix)}
     return compute_changes(scraped, site_stored, is_first_run)
-
-
-def update_state_for_site(
-    scraped: List[ProductSnapshot],
-    stored: StateDict,
-    site: str,
-) -> StateDict:
-    """
-    Like update_state(), but only replaces entries belonging to *site*.
-
-    Entries for other sites in *stored* are preserved unchanged.
-    """
-    site_prefix = f"{site}:"
-    # Keep all entries that don't belong to this site
-    other_sites = {k: v for k, v in stored.items() if not k.startswith(site_prefix)}
-    # Build updated entries for this site
-    site_new = update_state(scraped, {k: v for k, v in stored.items() if k.startswith(site_prefix)})
-    return {**other_sites, **site_new}

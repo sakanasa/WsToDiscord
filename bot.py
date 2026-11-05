@@ -6,7 +6,6 @@ Usage:
 
 Features:
     - Scheduled scrape every 30 minutes (Hobbystation, Fukufuku)
-    - Scheduled scrape every 10 minutes (Mercari TW)
     - /stock    — list currently in-stock products from state.json
     - /stockimg — list in-stock products with images
     - /update   — force an immediate scrape + notify cycle (all sites)
@@ -27,11 +26,7 @@ import discord_notifier
 import storage
 import scrapers.hobbystation as hs
 import scrapers.fukufuku as ff
-import scrapers.mercari as mc
-from scrapers import ChangeEvent
 from commands.emoji_stats import emoji_stats_command
-from commands.llm_chat import chat as llm_chat, clear_history as llm_clear_history
-from commands import memory as mem
 
 load_dotenv()
 
@@ -51,7 +46,6 @@ JST = timezone(timedelta(hours=9))
 SITE_NAMES = {
     "hobbystation": "ホビーステーション",
     "fukufuku": "ふくふくとれか",
-    "mercari": "Mercari 台灣",
 }
 
 
@@ -65,14 +59,11 @@ class WsBot(discord.Client):
 
     async def setup_hook(self) -> None:
         self.tree.add_command(emoji_stats_command)
-        self.tree.add_command(clearchat_command)
-        await asyncio.to_thread(mem.init)
         guild = discord.Object(id=GUILD_ID)
         self.tree.copy_global_to(guild=guild)
         await self.tree.sync(guild=guild)
         logger.info("bot: slash commands synced (guild=%d)", GUILD_ID)
         self.scheduled_scrape.start()
-        self.scheduled_mercari_scrape.start()
 
     @tasks.loop(minutes=30)
     async def scheduled_scrape(self) -> None:
@@ -83,15 +74,6 @@ class WsBot(discord.Client):
 
     @scheduled_scrape.before_loop
     async def _before_scheduled_scrape(self) -> None:
-        await self.wait_until_ready()
-
-    @tasks.loop(minutes=10)
-    async def scheduled_mercari_scrape(self) -> None:
-        channel = await self.fetch_channel(CHANNEL_ID)
-        await self._do_mercari_scrape_cycle(channel)
-
-    @scheduled_mercari_scrape.before_loop
-    async def _before_scheduled_mercari_scrape(self) -> None:
         await self.wait_until_ready()
 
     async def _do_scrape_cycle(
@@ -107,72 +89,18 @@ class WsBot(discord.Client):
             all_products = hs_products + ff_products
 
             stored = storage.load_local(LOCAL_STATE_PATH)
-            # Exclude mercari entries so they aren't flagged as disappeared
-            hs_ff_stored = {k: v for k, v in stored.items() if not k.startswith("mercari:")}
-            is_first_run = len(hs_ff_stored) == 0 and not force_notify
-            events = storage.compute_changes(all_products, hs_ff_stored, is_first_run)
-            new_state = storage.update_state(all_products, hs_ff_stored)
-            # Preserve mercari entries managed by the separate 10-min cycle
-            mercari_entries = {k: v for k, v in stored.items() if k.startswith("mercari:")}
-            new_state.update(mercari_entries)
+            is_first_run = len(stored) == 0 and not force_notify
+            events = storage.compute_changes(all_products, stored, is_first_run)
+            new_state = storage.update_state(all_products, stored)
             storage.save_local(LOCAL_STATE_PATH, new_state)
 
             if events:
                 await discord_notifier.send_to_channel(channel, events)
 
-            return len(events)
-
-    async def _do_mercari_scrape_cycle(self, channel: discord.abc.Messageable) -> int:
-        """Scrape Mercari TW → detect new listings → notify.
-
-        Only emits "new" events for products not seen before.
-        Sold-out and price-change events are intentionally ignored.
-        Disappeared items are silently removed from state.
-        """
-        async with self._lock:
-            mc_products = await asyncio.to_thread(mc.scrape)
-
-            stored = storage.load_local(LOCAL_STATE_PATH)
-            mercari_stored = {k: v for k, v in stored.items() if k.startswith("mercari:")}
-            seen_keys = set(mercari_stored.keys())
-            is_first_run = len(seen_keys) == 0
-
-            # Only notify about products not previously seen
-            events: list[ChangeEvent] = []
-            if not is_first_run:
-                for p in mc_products:
-                    if p.state_key not in seen_keys:
-                        events.append(ChangeEvent(event_type="new", snapshot=p))
-
-            # Replace mercari state with current scraped items (silently drops delisted ones)
-            new_state = storage.update_state_for_site(mc_products, stored, "mercari")
-            storage.save_local(LOCAL_STATE_PATH, new_state)
-
-            if events:
-                await discord_notifier.send_to_channel(channel, events)
-
-            logger.info(
-                "bot: Mercari scrape done — %d seen, %d new%s",
-                len(mc_products),
-                len(events),
-                " (first run, no notifications)" if is_first_run else "",
-            )
             return len(events)
 
 
 bot = WsBot()
-
-_MERCARI_DISPLAY_WINDOW = timedelta(hours=24)
-
-
-def _mercari_is_recent(entry: dict) -> bool:
-    """Return True if this Mercari entry was first seen within the display window."""
-    try:
-        dt = datetime.fromisoformat(entry["first_seen"])
-        return datetime.now(dt.tzinfo) - dt < _MERCARI_DISPLAY_WINDOW
-    except (KeyError, ValueError):
-        return False
-
 
 @bot.tree.command(name="stock", description="目前有哪些商品有存貨？")
 async def stock_cmd(interaction: discord.Interaction) -> None:
@@ -189,13 +117,10 @@ async def stock_cmd(interaction: discord.Interaction) -> None:
 
     for site, display_name in SITE_NAMES.items():
         items = [v for v in in_stock.values() if v.get("site") == site]
-        if site == "mercari":
-            items = [v for v in items if _mercari_is_recent(v)]
         if not items:
             continue
-        currency = "NT$" if site == "mercari" else "¥"
         lines = [
-            f"[{v['name']}]({v['product_url']}) **{currency}{v['price_raw']}**"
+            f"[{v['name']}]({v['product_url']}) **¥{v['price_raw']}**"
             for v in items
         ]
         # Discord embed field value limit is 1024 chars; split into chunks if needed
@@ -223,10 +148,7 @@ async def stockimg_cmd(interaction: discord.Interaction) -> None:
     await interaction.response.defer()
 
     stored = storage.load_local(LOCAL_STATE_PATH)
-    in_stock = [
-        v for v in stored.values()
-        if v.get("in_stock") and (v.get("site") != "mercari" or _mercari_is_recent(v))
-    ]
+    in_stock = [v for v in stored.values() if v.get("in_stock")]
 
     if not in_stock:
         embed = discord.Embed(
@@ -254,84 +176,7 @@ async def update_cmd(interaction: discord.Interaction) -> None:
     await interaction.response.defer()
     channel = interaction.channel
     n = await bot._do_scrape_cycle(channel, force_notify=True)
-    n += await bot._do_mercari_scrape_cycle(channel)
     await interaction.followup.send(f"✅ 更新完成。總共{n}件產品情報有變化。")
-
-
-@app_commands.command(name="clearchat", description="清除此頻道的 LLM 對話記錄")
-async def clearchat_command(interaction: discord.Interaction) -> None:
-    removed = llm_clear_history(interaction.channel_id)
-    await interaction.response.send_message(
-        f"✅ 已清除 {removed} 則對話記錄。" if removed else "此頻道沒有對話記錄。",
-        ephemeral=True,
-    )
-
-
-_DISCORD_MAX_LEN = 1900  # leave buffer under Discord's 2000-char limit
-
-# Cache of display_name → user_id, built from messages we observe.
-# Used to convert @name in LLM replies to real Discord mentions.
-_member_cache: dict[str, int] = {}
-
-
-def _resolve_mentions(text: str) -> str:
-    """Replace @名字 patterns in LLM output with proper Discord <@id> mentions."""
-    import re
-    def _replace(m: re.Match) -> str:
-        name = m.group(1)
-        uid = _member_cache.get(name)
-        return f"<@{uid}>" if uid else m.group(0)
-    return re.sub(r"@(\S+)", _replace, text)
-
-
-@bot.event
-async def on_message(message: discord.Message) -> None:
-    if message.author.bot:
-        return
-
-    # Keep member cache up to date as messages come in
-    _member_cache[message.author.display_name] = message.author.id
-
-    content = message.content.strip()
-    mentioned = bot.user in message.mentions if bot.user else False
-    prefixed = content.startswith("!")
-
-    if not mentioned and not prefixed:
-        return
-
-    # Strip trigger prefix from content
-    if mentioned:
-        for u in message.mentions:
-            content = content.replace(f"<@{u.id}>", "").replace(f"<@!{u.id}>", "")
-        content = content.strip()
-    else:
-        content = content[1:].strip()
-
-    if not content:
-        await message.reply("有什麼可以幫你的？")
-        return
-
-    sender = message.author.display_name
-    user_id = str(message.author.id)
-
-    async with message.channel.typing():
-        try:
-            reply = await asyncio.to_thread(llm_chat, message.channel.id, content, sender, user_id)
-        except Exception as e:
-            logger.error("llm: failed to get response: %s", e)
-            await message.reply("⚠️ 無法連線到 Ollama，請確認服務是否正常運行。")
-            return
-
-    reply = _resolve_mentions(reply)
-
-    # Send reply, splitting if over Discord's limit
-    if len(reply) <= _DISCORD_MAX_LEN:
-        await message.reply(reply)
-    else:
-        chunks = [reply[i:i + _DISCORD_MAX_LEN] for i in range(0, len(reply), _DISCORD_MAX_LEN)]
-        await message.reply(chunks[0])
-        for chunk in chunks[1:]:
-            await message.channel.send(chunk)
 
 
 if __name__ == "__main__":

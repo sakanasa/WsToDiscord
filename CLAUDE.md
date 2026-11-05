@@ -52,7 +52,7 @@ Test price change detection: run once to populate `state.json`, manually edit a 
 
 - **`main.py`** — Stateless scraper. Runs a single scrape-diff-notify cycle. Local mode uses APScheduler; GCP mode runs once and exits (Cloud Run Jobs triggered by Cloud Scheduler). Uses a temporary `discord.Client` that logs in, sends notifications, and closes.
 
-- **`bot.py`** — Persistent Discord bot (`discord.ext.tasks`). Maintains an active connection, registers slash commands (`/stock`, `/stockimg`, `/update`, `/emoji-stats`), and scrapes every 30 minutes. Uses `WsBot(discord.Client)` with an `app_commands.CommandTree`.
+- **`bot.py`** — Persistent Discord bot (`discord.ext.tasks`). Maintains an active connection, registers slash commands (`/stock`, `/stockimg`, `/update`, `/emoji-stats`), and scrapes every 30 minutes. Requires the privileged `message_content` intent (used by `/emoji-stats`). Uses `WsBot(discord.Client)` with an `app_commands.CommandTree`.
 
 ### Data Flow
 
@@ -91,7 +91,7 @@ Images are downloaded and attached as `discord.File` objects because shop server
 
 ### Slash Commands
 
-Commands in `bot.py` are registered directly on the `WsBot.tree`. Commands in `commands/` (currently only `emoji_stats`) are added via `self.tree.add_command()` in `setup_hook`. All commands are synced to the guild (not globally) for instant availability.
+Commands in `bot.py` (`/stock`, `/stockimg`, `/update`) are registered directly on the `WsBot.tree`. Commands in `commands/` (currently only `emoji_stats`) are added via `self.tree.add_command()` in `setup_hook`. All commands are synced to the guild (not globally) for instant availability.
 
 ## Deployment: GCP
 
