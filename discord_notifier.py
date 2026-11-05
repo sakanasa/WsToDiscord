@@ -31,6 +31,21 @@ SITE_NAMES = {
     "fukufuku": "ふくふくとれか",
 }
 
+def add_chunked_fields(embed: discord.Embed, name: str, lines: List[str]) -> None:
+    """Add *lines* as embed field(s), splitting under Discord's 1024-char field limit."""
+    chunk: List[str] = []
+    chunks: List[str] = []
+    for line in lines:
+        if sum(len(l) + 1 for l in chunk) + len(line) > 1020:
+            chunks.append("\n".join(chunk))
+            chunk = []
+        chunk.append(line)
+    if chunk:
+        chunks.append("\n".join(chunk))
+    for i, value in enumerate(chunks):
+        embed.add_field(name=name if i == 0 else f"{name} (續)", value=value, inline=False)
+
+
 EVENT_TITLES = {
     "new": "🆕 新着商品",
     "price_change": "💴 価格変更",

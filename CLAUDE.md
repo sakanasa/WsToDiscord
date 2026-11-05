@@ -52,7 +52,7 @@ Test price change detection: run once to populate `state.json`, manually edit a 
 
 - **`main.py`** — Stateless scraper. Runs a single scrape-diff-notify cycle. Local mode uses APScheduler; GCP mode runs once and exits (Cloud Run Jobs triggered by Cloud Scheduler). Uses a temporary `discord.Client` that logs in, sends notifications, and closes.
 
-- **`bot.py`** — Persistent Discord bot (`discord.ext.tasks`). Maintains an active connection, registers slash commands (`/stock`, `/stockimg`, `/update`, `/emoji-stats`), and scrapes every 30 minutes. Requires the privileged `message_content` intent (used by `/emoji-stats`). Uses `WsBot(discord.Client)` with an `app_commands.CommandTree`.
+- **`bot.py`** — Persistent Discord bot (`discord.ext.tasks`). Maintains an active connection, registers slash commands (`/stock`, `/stockimg`, `/update`, `/emoji-stats`, `/findprice`), and scrapes every 30 minutes. Requires the privileged `message_content` intent (used by `/emoji-stats`). Uses `WsBot(discord.Client)` with an `app_commands.CommandTree`.
 
 ### Data Flow
 
@@ -91,7 +91,17 @@ Images are downloaded and attached as `discord.File` objects because shop server
 
 ### Slash Commands
 
-Commands in `bot.py` (`/stock`, `/stockimg`, `/update`) are registered directly on the `WsBot.tree`. Commands in `commands/` (currently only `emoji_stats`) are added via `self.tree.add_command()` in `setup_hook`. All commands are synced to the guild (not globally) for instant availability.
+Commands in `bot.py` (`/stock`, `/stockimg`, `/update`) are registered directly on the `WsBot.tree`. Commands in `commands/` (`emoji_stats`, `find_price`) are added via `self.tree.add_command()` in `setup_hook`. All commands are synced to the guild (not globally) for instant availability.
+
+### Card Lookup (`card_search/`, `commands/find_price.py`)
+
+`/findprice card_1:"NIK/S135-001 UMA/W106-001"` looks up price and stock for up to 5 card numbers (`MAX_CARDS`) across shops, one embed per card, grouped by shop. Card numbers can be space-separated in `card_1` or entered in the optional `card_2`…`card_5` parameters (Tab moves between them in Discord). The last field of each embed is a divider plus the cheapest in-stock listing per card number, one line per rarity. NT$ prices (露天) are converted to ¥ with a live TWD→JPY rate (`card_search/fx.py`: open.er-api.com, then jsdelivr currency-api, cached 6 h, hard-coded fallback `FALLBACK_RATE`) so every shop competes in one ranking; NT$ picks show both prices and a rate footnote. Separate from the monitoring scrapers: each site module in `card_search/` exposes `search(card_no) -> List[CardListing]`.
+
+- 遊々亭 (`yuyutei.py`), ふくふくとれか (`fukufuku.py`), ホビーステーション (`hobbystation.py`, reuses `_get()` for the bot-check cookie), まんぞく屋 (`manzokuya.py`), マスターズスクウェア (`mastersquare.py`, Bushiroad's official shop; lists sold-out items too; base cards have no `【…仕様】` title tag and carry their rarity as a suffix like `003R`/`001RR`, which the module strips so numbers line up with other shops), カードラボ (`clabo.py`, same platform as マスターズスクウェア; rarity is in `【】` and lower-grade copies like `※プレイ用特価品※` keep that note in the rarity label), グランドパンダキャニオン (`gurapan.py`, EC-CUBE; titles carry no card number, so it is read from the thumbnail path `…/WS/S135/small/S135-001SEC_small.jpg`; non-rarity tags like `【エラッタ前】` are kept in the rarity label), BIGWEB (`bigweb.py`, Angular SPA — uses the JSON API behind it, `api.bigweb.co.jp/products?game_id=126&name=…`; foil numbers are zero-padded (`001SEC`) but base cards are not (`1`), so base queries run a second unpadded search; sold-out items come back with price 0), 露天 牌塔 store (`ruten.py`, prices in NT$ via `CardListing.currency`; uses the JSON API behind the store's front-end — storeinfo → seller id → `core/seller/<id>/prod` → `items/v2/list` — which is undocumented and may change). ホビーステーション drops the series prefix (`WS-S135-001SP`), so the query is the part after `/`. まんぞく屋 uses lowercase underscore codes (`nik_s135_001sec`) and only lists in-stock items, so an empty result means out of stock (a module can set `EMPTY_TEXT` to customize the "not found" message).
+- Matching (`card_search.matches`): a base number (`NIK/S135-001`) also returns every rarity (`…001SEC`, `…001SP`); a number with a suffix matches only itself.
+- Card image comes from ws-tcg.com via a fixed path (`official_image_url`), falling back to the 遊々亭 image if it 404s.
+- ドラゴンスター (dorasuta.jp) is behind Cloudflare, so only a search link is shown (currently a Google `site:` search).
+- カードショップイセイ (cardshopisei.com, Shopify) answers `/search` and `/collections/…` (incl. `products.json`) with HTTP 429 `local_rate_limited` to scripts, so it is link-only too (`/search?q=<card>`). Its Vヴァイス deck collection could not be added to the monitoring scrapers for the same reason. Don't work around the rate limit.
 
 ## Deployment: GCP
 

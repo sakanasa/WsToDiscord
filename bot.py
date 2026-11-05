@@ -27,6 +27,7 @@ import storage
 import scrapers.hobbystation as hs
 import scrapers.fukufuku as ff
 from commands.emoji_stats import emoji_stats_command
+from commands.find_price import find_price_command
 
 load_dotenv()
 
@@ -59,6 +60,7 @@ class WsBot(discord.Client):
 
     async def setup_hook(self) -> None:
         self.tree.add_command(emoji_stats_command)
+        self.tree.add_command(find_price_command)
         guild = discord.Object(id=GUILD_ID)
         self.tree.copy_global_to(guild=guild)
         await self.tree.sync(guild=guild)
@@ -123,18 +125,7 @@ async def stock_cmd(interaction: discord.Interaction) -> None:
             f"[{v['name']}]({v['product_url']}) **¥{v['price_raw']}**"
             for v in items
         ]
-        # Discord embed field value limit is 1024 chars; split into chunks if needed
-        chunk, chunks = [], []
-        for line in lines:
-            if sum(len(l) + 1 for l in chunk) + len(line) > 1020:
-                chunks.append("\n".join(chunk))
-                chunk = []
-            chunk.append(line)
-        if chunk:
-            chunks.append("\n".join(chunk))
-        for i, value in enumerate(chunks):
-            field_name = display_name if i == 0 else f"{display_name} (續)"
-            embed.add_field(name=field_name, value=value, inline=False)
+        discord_notifier.add_chunked_fields(embed, display_name, lines)
 
     if not in_stock:
         embed.description = "目前沒有可以購買的商品。"
